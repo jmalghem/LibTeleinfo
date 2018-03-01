@@ -46,11 +46,11 @@ extern "C" {
 #include "config.h"
 
 
-#define DEBUG
+//#define DEBUG
 #define DEBUG_SERIAL	Serial1
 #define DEBUG_SERIAL1	
 
-#define WIFINFO_VERSION "1.0.1"
+#define WIFINFO_VERSION "1.0.2"
 
 // I prefix debug macro to be sure to use specific for THIS library
 // debugging, this should not interfere with main sketch or other 
@@ -72,8 +72,8 @@ extern "C" {
 #endif
 
 #define BLINK_LED_MS   50 // 50 ms blink
-#define RGB_LED_PIN    14 
-#define RED_LED_PIN    12
+//#define RGB_LED_PIN    14 
+//#define RED_LED_PIN    12
 
 // value for HSL color
 // see http://www.workwithcolor.com/blue-color-hue-range-01.htm
@@ -124,6 +124,7 @@ extern unsigned long seconds;
 extern _sysinfo sysinfo;
 extern Ticker Tick_emoncms;
 extern Ticker Tick_jeedom;
+extern Ticker Tick_httpRequest;
 
 
 // Exported function located in main sketch
@@ -131,6 +132,7 @@ extern Ticker Tick_jeedom;
 void ResetConfig(void);
 void Task_emoncms();
 void Task_jeedom();
+void Task_httpRequest();
 
 #endif
 

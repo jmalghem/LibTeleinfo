@@ -34,6 +34,7 @@
 #include <NeoPixelBus.h>
 #include <LibTeleinfo.h>
 #include <FS.h>
+#include <SPI.h>
 
 // Global project file
 #include "Wifinfo.h"
@@ -63,14 +64,19 @@ Ticker red_ticker;
 Ticker Every_1_Sec;
 Ticker Tick_emoncms;
 Ticker Tick_jeedom;
+Ticker Tick_httpRequest;
 
 volatile boolean task_1_sec = false;
 volatile boolean task_emoncms = false;
 volatile boolean task_jeedom = false;
+volatile boolean task_httpRequest = false;
 unsigned long seconds = 0;
 
 // sysinfo data
 _sysinfo sysinfo;
+
+// count Wifi connect attempts, to check stability
+int       nb_reconnect = 0;
 
 /* ======================================================================
 Function: UpdateSysinfo 
@@ -87,8 +93,9 @@ void UpdateSysinfo(boolean first_call, boolean show_debug)
   int sec = seconds;
   int min = sec / 60;
   int hr = min / 60;
+  long day = hr / 24;
 
-  sprintf_P( buff, PSTR("%02d:%02d:%02d"), hr, min % 60, sec % 60);
+  sprintf_P( buff, PSTR("%ld days %02d h %02d m %02d sec"),day, hr % 24, min % 60, sec % 60);
   sysinfo.sys_uptime = buff;
 }
 
@@ -130,6 +137,18 @@ void Task_jeedom()
 }
 
 /* ======================================================================
+Function: Task_httpRequest
+Purpose : callback of http request ticker
+Input   : 
+Output  : -
+Comments: Like an Interrupt, need to be short, we set flag for main loop
+====================================================================== */
+void Task_httpRequest()
+{
+  task_httpRequest = true;
+}
+
+/* ======================================================================
 Function: LedOff 
 Purpose : callback called after led blink delay
 Input   : led (defined in term of PIN)
@@ -142,10 +161,10 @@ void LedOff(int led)
   if (led==BLU_LED_PIN)
     LedBluOFF();
   #endif
-  if (led==RED_LED_PIN)
-    LedRedOFF();
-  if (led==RGB_LED_PIN)
-    LedRGBOFF();
+  //if (led==RED_LED_PIN)
+  //  LedRedOFF();
+  //if (led==RGB_LED_PIN)
+  //  LedRGBOFF();
 }
 
 
@@ -276,7 +295,7 @@ void NewFrame(ValueList * me)
     LedRGBON(COLOR_GREEN);
     
     // led off after delay
-    rgb_ticker.once_ms( (uint32_t) BLINK_LED_MS, LedOff, (int) RGB_LED_PIN);
+//    rgb_ticker.once_ms( (uint32_t) BLINK_LED_MS, LedOff, (int) RGB_LED_PIN);
   }
 
   sprintf_P( buff, PSTR("New Frame (%ld Bytes free)"), ESP.getFreeHeap() );
@@ -300,7 +319,7 @@ void UpdatedFrame(ValueList * me)
     LedRGBON(COLOR_MAGENTA);
 
     // led off after delay
-    rgb_ticker.once_ms(BLINK_LED_MS, LedOff, RGB_LED_PIN);
+//    rgb_ticker.once_ms(BLINK_LED_MS, LedOff, RGB_LED_PIN);
   }
 
   sprintf_P( buff, PSTR("Updated Frame (%ld Bytes free)"), ESP.getFreeHeap() );
@@ -370,6 +389,11 @@ void ResetConfig(void)
   strcpy_P(config.jeedom.url, CFG_JDOM_DEFAULT_URL);
   //strcpy_P(config.jeedom.adco, CFG_JDOM_DEFAULT_ADCO);
 
+  // HTTP Request
+  strcpy_P(config.httpReq.host, CFG_HTTPREQ_DEFAULT_HOST);
+  config.httpReq.port = CFG_HTTPREQ_DEFAULT_PORT;
+  strcpy_P(config.httpReq.path, CFG_HTTPREQ_DEFAULT_PATH);
+  
   config.config |= CFG_RGB_LED;
 
   // save back
@@ -441,7 +465,7 @@ int WifiHandleConn(boolean setup = false)
         WiFi.begin(config.ssid);
       }
 
-      timeout = 25; // 25 * 200 ms = 5 sec time out
+      timeout = 50; // 50 * 200 ms = 5 sec time out
       // 200 ms loop
       while ( ((ret = WiFi.status()) != WL_CONNECTED) && timeout )
       {
@@ -458,6 +482,7 @@ int WifiHandleConn(boolean setup = false)
     // connected ? disable AP, client mode only
     if (ret == WL_CONNECTED)
     {
+      nb_reconnect++;         // increase reconnections count
       DebuglnF("connected!");
       WiFi.mode(WIFI_STA);
 
@@ -547,7 +572,7 @@ void setup()
   //delay(1000);
 
   // Init the RGB Led, and set it off
-  rgb_led.Begin();
+//  rgb_led.Begin();
   LedRGBOFF();
 
   // Init the serial 1, Our Debug Serial TXD0
@@ -570,6 +595,7 @@ void setup()
   DebugF("Config size="); Debug(sizeof(_Config));
   DebugF(" (emoncms=");   Debug(sizeof(_emoncms));
   DebugF("  jeedom=");   Debug(sizeof(_jeedom));
+  DebugF("  http request=");   Debug(sizeof(_httpRequest));
   Debugln(')');
   Debugflush();
 
@@ -609,8 +635,8 @@ void setup()
 
   // We'll drive our onboard LED
   // old TXD1, not used anymore, has been swapped
-  pinMode(RED_LED_PIN, OUTPUT); 
-  LedRedOFF();
+  //pinMode(RED_LED_PIN, OUTPUT); 
+  //LedRedOFF();
 
   // start Wifi connect or soft AP
   WifiHandleConn(true);
@@ -773,6 +799,10 @@ void setup()
   // Jeedom Update if needed
   if (config.jeedom.freq) 
     Tick_jeedom.attach(config.jeedom.freq, Task_jeedom);
+
+  // HTTP Request Update if needed
+  if (config.httpReq.freq) 
+    Tick_httpRequest.attach(config.httpReq.freq, Task_httpRequest);
 }
 
 /* ======================================================================
@@ -802,6 +832,9 @@ void loop()
   } else if (task_jeedom) { 
     jeedomPost();  
     task_jeedom=false;
+  } else if (task_httpRequest) { 
+    httpRequest();  
+    task_httpRequest=false;
   }
 
   // Handle teleinfo serial

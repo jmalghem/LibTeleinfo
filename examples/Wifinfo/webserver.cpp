@@ -182,6 +182,21 @@ void handleFormConfig(void)
     }
     config.jeedom.freq = itemp;
 
+    // HTTP Request
+    strncpy(config.httpReq.host, server.arg("httpreq_host").c_str(), CFG_HTTPREQ_HOST_SIZE );
+    strncpy(config.httpReq.path, server.arg("httpreq_path").c_str(), CFG_HTTPREQ_PATH_SIZE );
+    itemp = server.arg("httpreq_port").toInt();
+    config.httpReq.port = (itemp>=0 && itemp<=65535) ? itemp : CFG_HTTPREQ_DEFAULT_PORT ; 
+    itemp = server.arg("httpreq_freq").toInt();
+    if (itemp>0 && itemp<=86400)
+    {
+      Tick_httpRequest.detach();
+      Tick_httpRequest.attach(itemp, Task_httpRequest);
+    } else {
+      itemp = 0 ; 
+    }
+    config.httpReq.freq = itemp;
+
     if ( saveConfig() ) {
       ret = 200;
       response = "OK";
@@ -304,9 +319,9 @@ void tinfoJSONTable(void)
       if (first_item)
         first_item = false;
       else
-        response += F(",\r\n");
+        if(strlen(me->name) >= 1) response += F(",\r\n");
 
-/*
+
       Debug(F("(")) ;
       Debug(++index) ;
       Debug(F(") ")) ;
@@ -336,18 +351,21 @@ void tinfoJSONTable(void)
       }
 
       Debugln() ;
-*/
-      response += F("{\"na\":\"");
-      response +=  me->name ;
-      response += F("\", \"va\":\"") ;
-      response += me->value;
-      response += F("\", \"ck\":\"") ;
-      if (me->checksum == '"' || me->checksum == '\\' || me->checksum == '/')
-        response += '\\';
-      response += (char) me->checksum;
-      response += F("\", \"fl\":");
-      response += me->flags ;
-      response += '}' ;
+
+      if(strlen(me->name) >= 1) {
+        response += F("{\"na\":\"");
+        response += me->name ;
+        response += F("\", \"va\":\"") ;
+        response += me->value;
+        response += F("\", \"ck\":\"") ;
+        //if (me->checksum == '"' || me->checksum == '\\' || me->checksum == '/')
+        //  response += '\\';
+        if (isalnum((char)me->checksum))
+          response += (char)me->checksum;
+        response += F("\", \"fl\":\"");
+        response += me->flags ;
+        response += F("\"}");
+      }
 
     }
    // Json end
@@ -386,6 +404,26 @@ void getSysJSONData(String & response)
   response += sysinfo.sys_uptime;
   response += "\"},\r\n";
 
+  if (WiFi.status() == WL_CONNECTED)
+  {
+      response += "{\"na\":\"Wifi RSSI\",\"va\":\"";
+      response += WiFi.RSSI();
+      response += " dB\"},\r\n";
+      response += "{\"na\":\"Wifi network\",\"va\":\"";
+      response += config.ssid;
+      response += "\"},\r\n";
+      uint8_t mac[] = {0, 0, 0, 0, 0, 0};
+      uint8_t* macread = WiFi.macAddress(mac);
+      char macaddress[20];
+      sprintf_P(macaddress, PSTR("%02x:%02x:%02x:%02x:%02x:%02x"), macread[0], macread[1], macread[2], macread[3], macread[4], macread[5]);
+      response += "{\"na\":\"Adresse MAC station\",\"va\":\"";
+      response += macaddress;
+      response += "\"},\r\n";
+  }
+  response += "{\"na\":\"Nb reconnexions Wifi\",\"va\":\"";
+  response += nb_reconnect;
+  response += "\"},\r\n"; 
+  
   response += "{\"na\":\"WifInfo Version\",\"va\":\"" WIFINFO_VERSION "\"},\r\n";
 
   response += "{\"na\":\"Compile le\",\"va\":\"" __DATE__ " " __TIME__ "\"},\r\n";
@@ -499,7 +537,13 @@ void getConfJSONData(String & r)
   r+=CFG_FORM_JDOM_URL;  r+=FPSTR(FP_QCQ); r+=config.jeedom.url;    r+= FPSTR(FP_QCNL); 
   r+=CFG_FORM_JDOM_KEY;  r+=FPSTR(FP_QCQ); r+=config.jeedom.apikey; r+= FPSTR(FP_QCNL); 
   r+=CFG_FORM_JDOM_ADCO; r+=FPSTR(FP_QCQ); r+=config.jeedom.adco;   r+= FPSTR(FP_QCNL); 
-  r+=CFG_FORM_JDOM_FREQ; r+=FPSTR(FP_QCQ); r+=config.jeedom.freq;  
+  r+=CFG_FORM_JDOM_FREQ; r+=FPSTR(FP_QCQ); r+=config.jeedom.freq;   r+= FPSTR(FP_QCNL); 
+
+  r+=CFG_FORM_HTTPREQ_HOST; r+=FPSTR(FP_QCQ); r+=config.httpReq.host;   r+= FPSTR(FP_QCNL); 
+  r+=CFG_FORM_HTTPREQ_PORT; r+=FPSTR(FP_QCQ); r+=config.httpReq.port;   r+= FPSTR(FP_QCNL); 
+  r+=CFG_FORM_HTTPREQ_PATH; r+=FPSTR(FP_QCQ); r+=config.httpReq.path;   r+= FPSTR(FP_QCNL);  
+  r+=CFG_FORM_HTTPREQ_FREQ; r+=FPSTR(FP_QCQ); r+=config.httpReq.freq;  
+  
 
   r+= F("\""); 
   // Json end
